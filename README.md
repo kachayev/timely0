@@ -8,7 +8,7 @@ Even though the original idea of multidimensional timestamps for progress tracki
 
 The goal of the project is to find a simplest possible implementation of all concepts described in the paper. So the reader does not need to understand 22,700 lines of C# code (estimate from the paper). Another problem with learning the concepts... the reference [Naiad implementation](https://github.com/MicrosoftResearch/Naiad) has both a lot of low level details (e.g. handling network communication between distributed nodes) and higher level frameworks (e.g. GraphLINQ). Those are valueable but they overcomplicate understanding of the basics.
 
-It does not seem like Naiad paper got a lot of industry traction (apart from the fact that some ideas from the paper were used to build architecture foundation for TensorFlow). Newer reincarnation of Timely Dataflow concept is done in Rust here: [timely-dataflow](https://github.com/TimelyDataflow/timely-dataflow). Rust library has much clear approach to defining dataflow primities (e.g. stages, scopes, etc) and relies on the concept of built-in iterables rather than on inheritance.
+It does not seem like Naiad paper got a lot of industry traction (apart from the fact that some ideas from the paper were used to build architecture foundation for TensorFlow). Newer reincarnation of Timely Dataflow concept is done in Rust here: [timely-dataflow](https://github.com/TimelyDataflow/timely-dataflow). Rust library has much clear approach to defining dataflow primities (e.g. stages, scopes, etc) and relies on the concept of built-in iterables rather than on inheritance. Which makes it somewhat easier to understand the code but the concepts are still hard to grasp without prior learning.
 
 ## DOs
 
