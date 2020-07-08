@@ -2,6 +2,12 @@
 
 Minimalistic implementation of Naiad paper "A Timely Dataflow System" in Scala.
 
+## What
+
+Quoting Microsoft Research:
+
+>>> The Naiad project is an investigation of data-parallel dataflow computation, like Dryad and DryadLINQ, but with a focus on low-latency streaming and cyclic computations. Naiad introduces a new computational model, timely dataflow, which combines low-latency asynchronous message flow with lightweight coordination when required. These primitives allow the efficient implementation of many dataflow patterns, from bulk and streaming computation to iterative graph processing and machine learning.
+
 ## Why
 
 Even though the original idea of multidimensional timestamps for progress tracking to allow for cycles in dataflow graph described in the ["Naiad: A Timely Dataflow System"](https://cs.stanford.edu/~matei/courses/2015/6.S897/readings/naiad.pdf) seems pretty straighforward, understanding of details and implementation techniques might be somewhat... tricky.
@@ -19,6 +25,8 @@ The project contains implementation of 2 cases:
 Message-passing between nodes of the dataflow graph is implemented using Actors (leveraging the simplest actors library ever, [castor](https://github.com/lihaoyi/castor)). Actor-based implementation would definitely suffer from performance problems but the concept of Actors sending messages plays nicely with core idea of dataflow nodes exchanging messages to progress time (Vertex API described in the paper is almost identical to typical Actors systems with `sendBy` and `onRecv`). Also, using message-passing instead of direct state mutation allows us to abstract away the notion that nodes might run on different machines. In this case, more advance libraries like Akka would handle networking keeping the high-level API similar to a single machine execution context.
 
 Vertex API seems too verbose in many cases, and it's true. It is verbose. Basic concepts were never meant to be used directly in high-level applications. Instead, timely dataflow provides the platform to build friendlier frameworks on top of it, e.g. [Differential Dataflow](https://github.com/TimelyDataflow/differential-dataflow) that uses functional transformations of collections of data with pretty familiar operators like `map`, `filter`, `join`, `group` etc or [GraphLINQ](https://bigdataatsvc.wordpress.com/2014/05/08/graphlinq-a-graph-library-for-naiad/) that provides streaming interface over graph definitions with nodes/edges and values attached to them.
+
+Even `subscription` functionality that is used to observe changes hapenning within dataflow graph seems quite high level (and, in fact, is implementated by reusing existing Vertex abstraction).
 
 ## DONTs
 

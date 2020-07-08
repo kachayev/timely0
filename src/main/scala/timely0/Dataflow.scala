@@ -14,6 +14,7 @@ object Dataflow {
 
   import Context.Simple._
 
+  // xxx(okachaiev): reimplement Time being semantically closer to the paper
   sealed trait Time extends Product with Serializable with Ordered[Time] {
     def compare(that: Time): Int
   }
@@ -65,6 +66,9 @@ object Dataflow {
 
   implicit def int2Time(x: Int): Time = Time(x)
 
+  // xxx(okachaiev): message should probably be extended to keep track of
+  // source vertex id (or edge) to avoid a lot of code duplication
+  // and ._1, ._2 extractors
   final case class Message[T](payload: T, time: Time)
   
   type Vertex[T] = SimpleActor[(VertexId, Message[T])]
@@ -101,7 +105,8 @@ object Dataflow {
     val notifyVertex: Map[VertexId, Vertex[Notify]] = Map.empty[VertexId, Vertex[Notify]]
     
     val occurence: ConcurrentMap[Pointstamp, Int] = new ConcurrentHashMap[Pointstamp, Int]
-    
+   
+    // xxx(okachaiev): naming convenation is wrong... it's definitely not an edge
     def registerEdge(id: VertexId, ref: Vertex[_]) = {
       edges.put(id, ref)
     }
@@ -116,6 +121,7 @@ object Dataflow {
       registerVertexIn(reverseGraph, target, source)
     }
 
+    // xxx(okachaiev): be more precise with naming... should be "notificationVertex"
     def registerNotify(source: VertexId, target: Vertex[Notify]) = {
       notifyVertex.put(source, target)
     }
@@ -126,31 +132,21 @@ object Dataflow {
       notifications.put(at, targets + vertex)
     }
 
+    // xxx(okachaiev): do we really need 2 different calls?
     def send[T](source: VertexId, message: Message[T]) = {
       graph.getOrElse(source, Nil) foreach { targetId =>
-        edges.get(targetId) match {
-          // type level cheating... :(
-          case Some(target) => {
-            incrementOccurence(Pointstamp(message.time, targetId))
-            target.asInstanceOf[Vertex[T]].send((source, message))
-          }
-          case None => {
-            println("[ERROR] Something went very wrong...", source, targetId)
-          }
-        }
+        edges.get(targetId).map({ target =>
+          incrementOccurence(Pointstamp(message.time, targetId))
+          target.asInstanceOf[Vertex[T]].send((source, message))
+        })
       }
     }
 
     def sendBy[T](source: VertexId, targetId: VertexId, message: Message[T]) = {
-      edges.get(targetId) match {
-        case Some(target) => {
-          incrementOccurence(Pointstamp(message.time, targetId))
-          target.asInstanceOf[Vertex[T]].send((source, message))
-        }
-        case None => {
-          println("[ERROR] Something went very wrong...", source, targetId)
-        }
-      }
+      edges.get(targetId).map({ target =>
+        incrementOccurence(Pointstamp(message.time, targetId))
+        target.asInstanceOf[Vertex[T]].send((source, message))
+      })
     }
 
     def notify(point: Pointstamp) = point match { case Pointstamp(at, vertex) =>
@@ -161,6 +157,8 @@ object Dataflow {
       }
     }
 
+    // xxx(okachaiev): update reachability when adding vertex/edges
+    // not each time we send a message
     def reachableFromDataflow(graph: Dataflow, vertex: VertexId): Set[VertexId] = {
       def bfs(state: Set[VertexId]): Set[VertexId] = {
         val newState = state.foldLeft(Set.empty[VertexId])({ (cursor, node) =>
@@ -197,6 +195,8 @@ object Dataflow {
    
     // xxx(okachaiev): concurrency (!!!), reimplement as messages to
     // rely on a single queue of all updates
+    // xxx(okachaiev): create a separate object "ProgressTracker" to avoid
+    // mixing the concept with other things
     def broadcastProgressUpdate(vertex: VertexId, at: Time) = {
       val round = currentRound.get(vertex)
 
@@ -278,11 +278,11 @@ object Dataflow {
   abstract class UnaryVertex[T, B](df: Computation, source: Edge) {
 
     val refId = df.index.incrementAndGet()
-
+    // xxx(okachaiev): probably remove the concept of buffers
+    // as it's mostly around friendly API rather than essential part
     val buffers: Map[Time, B] = Map.empty[Time, B]
-
+    
     def onRecv(edge: Edge, msg: T, time: Time)
-
     def onNotify(at: Time) = {}
     
     val ref = new SimpleActor[(VertexId, Message[T])]() {

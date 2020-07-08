@@ -2,8 +2,8 @@ package timely0
 
 import scala.collection.mutable.Map
 
-// Implementation of code example from Figure 4, section 2.2 "Vertex computation"
-// Demonstrates difference between immediate (non-coordinated execution) and
+// implementation of code example from Figure 4, section 2.2 "Vertex computation"
+// demonstrates difference between immediate (non-coordinated execution) and
 // notification-based coordinated flow
 object DistinctCount extends App {
 
@@ -38,8 +38,10 @@ object DistinctCount extends App {
     // this part is not very clear from the paper
     // 4.3 states "... the inputs of a stage must be connected before
     // its outputs, in order to prevent invalid cycles"
-    // here, we just declare the output rather then actually binding it
-    // to any specific implementation yet. keeping the code type safe in
+    // here, we just declare the output by creating an "Edge" with the source
+    // id pointing to a new Vertex and predefined target id that will
+    // later be bound to a specific target vertex. which seems to be aligned
+    // with the binding order specified in the paper. keeping the code type safe in
     // this case is somewhat cumbersome as the declaration cares not only
     // the fact that we need output here but also what type of messages
     // this output has to accept
@@ -64,9 +66,8 @@ object DistinctCount extends App {
           newCounts
       }
 
-      timeCounts.get(msg) match {
-        case Some(_) => {}
-        case None => this.sendBy(output1, msg, time)
+      if (!timeCounts.contains(msg)) {
+        this.sendBy(output1, msg, time)
       }
 
       timeCounts.updateWith(msg) {
