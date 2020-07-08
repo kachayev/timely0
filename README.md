@@ -16,7 +16,7 @@ The goal of the project is to find a simplest possible implementation of all con
 
 It does not seem like Naiad paper got a lot of industry traction (apart from the fact that some ideas from the paper were used as architectural foundation for TensorFlow). Newer implementation of Timely Dataflow concept is done in Rust here: [timely-dataflow](https://github.com/TimelyDataflow/timely-dataflow). Rust library has much clear approach to defining dataflow primities (e.g. stages, scopes, etc) and relies on the concept of built-in iterables rather than on inheritance. Which makes it somewhat easier to understand the code but the concepts are still hard to grasp without prior learning.
 
-## DOs
+## How?
 
 The project contains implementation of 2 cases:
 * `DistinctCount` from the paper
@@ -24,9 +24,21 @@ The project contains implementation of 2 cases:
 
 Message-passing between nodes of the dataflow graph is implemented using Actors (leveraging the simplest actors library ever, [castor](https://github.com/lihaoyi/castor)). Actor-based implementation would definitely suffer from performance problems but the concept of Actors sending messages plays nicely with core idea of dataflow nodes exchanging messages to progress time (Vertex API described in the paper is almost identical to typical Actors systems with `sendBy` and `onRecv`). Also, using message-passing instead of direct state mutation allows us to abstract away the notion that nodes might run on different machines. In this case, more advance libraries like Akka would handle networking keeping the high-level API similar to a single machine execution context.
 
+Note, that progress tracking would work the same way even when running on distributed nodes. The fact was briefly mentioned in the paper and formally proved in ["Formal Analysis of a Distributed Algorithm for Tracking Progress"](https://www.microsoft.com/en-us/research/wp-content/uploads/2013/06/clock-verif2.pdf) (this paper introduces formal TLA specification).
+
 Vertex API seems too verbose in many cases, and it's true. It is verbose. Basic concepts were never meant to be used directly in high-level applications. Instead, timely dataflow provides the platform to build friendlier frameworks on top of it, e.g. [Differential Dataflow](https://github.com/TimelyDataflow/differential-dataflow) that uses functional transformations of collections of data with pretty familiar operators like `map`, `filter`, `join`, `group` etc or [GraphLINQ](https://bigdataatsvc.wordpress.com/2014/05/08/graphlinq-a-graph-library-for-naiad/) that provides streaming interface over graph definitions with nodes/edges and values attached to them.
 
 Even `subscription` functionality that is used to observe changes hapenning within dataflow graph seems quite high level (and, in fact, is implementated by reusing existing Vertex abstraction).
+
+## DOs
+
+What is covered:
+
+* multidimensional time (epoch & loop counters)
+* dataflow graph (vertecies to process data, edges to form connections)
+* loop context (ingress, feedback, egress)
+* reachability analysis ("could-result-in" concept from the paper)
+* progress tracker, pointstamps, occurence counters
 
 ## DONTs
 
