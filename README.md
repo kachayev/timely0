@@ -8,7 +8,7 @@ Quoting Microsoft Research:
 
 > The Naiad project is an investigation of data-parallel dataflow computation, like Dryad and DryadLINQ, but with a focus on low-latency streaming and cyclic computations. Naiad introduces a new computational model, timely dataflow, which combines low-latency asynchronous message flow with lightweight coordination when required. These primitives allow the efficient implementation of many dataflow patterns, from bulk and streaming computation to iterative graph processing and machine learning.
 
-## Why
+## Why?
 
 Even though the original idea of multidimensional timestamps for progress tracking to allow for cycles in dataflow graph described in the ["Naiad: A Timely Dataflow System"](https://cs.stanford.edu/~matei/courses/2015/6.S897/readings/naiad.pdf) seems pretty straighforward, understanding of details and implementation techniques might be somewhat... tricky.
 
