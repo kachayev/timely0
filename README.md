@@ -6,7 +6,7 @@ Minimalistic implementation of Naiad paper "A Timely Dataflow System" in Scala.
 
 Quoting Microsoft Research:
 
->>> The Naiad project is an investigation of data-parallel dataflow computation, like Dryad and DryadLINQ, but with a focus on low-latency streaming and cyclic computations. Naiad introduces a new computational model, timely dataflow, which combines low-latency asynchronous message flow with lightweight coordination when required. These primitives allow the efficient implementation of many dataflow patterns, from bulk and streaming computation to iterative graph processing and machine learning.
+> The Naiad project is an investigation of data-parallel dataflow computation, like Dryad and DryadLINQ, but with a focus on low-latency streaming and cyclic computations. Naiad introduces a new computational model, timely dataflow, which combines low-latency asynchronous message flow with lightweight coordination when required. These primitives allow the efficient implementation of many dataflow patterns, from bulk and streaming computation to iterative graph processing and machine learning.
 
 ## Why
 
