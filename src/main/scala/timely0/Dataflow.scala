@@ -236,14 +236,9 @@ object Dataflow {
     }
 
     def newInput[T](): Input[T] = new Input[T](this)
-    
-    def newOutput(source: VertexId): Edge = {
-      val edge = Edge(source, index.getAndIncrement())
-      edge
-    }
-
-    def subscribe[T](source: Edge, callback: T => Unit): Unit =
-      new Subscription(this, source, callback)
+    // xxx(okachaiev): should this edge be automatically registered?
+    def newOutput(source: VertexId): Edge = Edge(source, index.getAndIncrement())
+    def subscribe[T](source: Edge, callback: T => Unit): Unit = new Subscription(this, source, callback)
   }
 
   class Input[T](df: Computation) {
