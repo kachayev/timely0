@@ -10,7 +10,7 @@ object Collatz extends App {
 
   val input = computation.newInput[Long]
 
-  val input2step = new UnaryVertex[Long, Any](computation, input.edge) {
+  val input2step = new UnaryVertex[Long](computation, input.edge) {
     def onRecv(e: Edge, msg: Long, time: Time) = {
       this.sendBy(this.output, Step(msg, msg, 0), time)
     }

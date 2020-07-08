@@ -275,7 +275,7 @@ object Dataflow {
   // as functions of computation/controller not functions of the vertex
   // itself to avoid coupling between vertex implementation and
   // very specific computation/controller they are intended to be used for
-  abstract class UnaryVertex[T, B](df: Computation, source: Edge) {
+  abstract class UnaryVertex[T](df: Computation, source: Edge) {
 
     val refId = df.index.incrementAndGet()
     
@@ -310,12 +310,12 @@ object Dataflow {
   }
 
   class Subscription[T](df: Computation, source: Edge, callback: T => Unit)
-    extends UnaryVertex[T, Any](df, source) {
+    extends UnaryVertex[T](df, source) {
     def onRecv(e: Edge, msg: T, time: Time) = callback(msg)
   }
 
   abstract class LoopContext[T, E](df: Computation, source: Edge)
-    extends UnaryVertex[T, Any](df, source) {
+    extends UnaryVertex[T](df, source) {
 
     val ingressId = df.index.incrementAndGet()
     val feedbackId = df.index.incrementAndGet()

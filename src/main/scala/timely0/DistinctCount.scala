@@ -20,7 +20,7 @@ object DistinctCount extends App {
   // and splits it into words, sending each word separately while keeping
   // epoch the same. this way, further discount/counter operations would
   // make sense
-  val string2words = new UnaryVertex[String, Any](computation, input.edge) {
+  val string2words = new UnaryVertex[String](computation, input.edge) {
     def onRecv(e: Edge, msg: String, time: Time) = {
       msg.split(" ").map(_.trim().toLowerCase()).foreach({ word =>
         this.sendBy(this.output, word, time)
@@ -28,9 +28,12 @@ object DistinctCount extends App {
     }
   }
 
-  val distinctCount = new UnaryVertex[String, Any](computation, string2words.output) {
-    // the implementation has a notion of per-time buffers
-    // but we follow here the layout of the code from the paper
+  val distinctCount = new UnaryVertex[String](computation, string2words.output) {
+    // the Naiad implementation has a notion of per-time buffers
+    // to simplify user-facing API (it's a typical operation for pretty
+    // much each stateful vertex to keep stash of state per each timestamp
+    // in a map)
+    // here we follow the layout of the code from the paper
     val counts: Map[Time, Map[String, Int]] = Map.empty[Time, Map[String, Int]]
 
     // this part is not very clear from the paper
