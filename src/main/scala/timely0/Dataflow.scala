@@ -315,5 +315,48 @@ object Dataflow {
     def onRecv(e: Edge, msg: T, time: Time) = callback(msg)
   }
 
+  abstract class LoopContext[T, E](df: Computation, source: Edge)
+    extends UnaryVertex[T, Any](df, source) {
 
+    val ingressId = df.index.incrementAndGet()
+    val feedbackId = df.index.incrementAndGet()
+    val egressId = df.index.incrementAndGet()
+    val feedback = Edge(this.refId, feedbackId)
+    val egress = Edge(this.refId, egressId)
+
+    val ingressRef = new SimpleActor[(VertexId, Message[T])]() {
+      override def run(message: (VertexId, Message[T])) = message match {
+        case (vertexId, Message(payload, time)) => {
+          df.sendBy[T](vertexId, ingressId, Message(payload, Time.branch(time)))
+        }
+      }
+    }
+
+    val feedbackRef = new SimpleActor[(VertexId, Message[T])]() {
+      override def run(message: (VertexId, Message[T])) = message match {
+        case (vertexId, Message(payload, time)) =>
+          df.sendBy[T](vertexId, feedbackId, Message(payload, Time.advance(time)))
+      }
+    }
+
+    val egressRef = new SimpleActor[(VertexId, Message[E])]() {
+      override def run(message: (VertexId, Message[E])) = message match {
+        case (vertexId, Message(payload, time)) =>
+          df.sendBy[E](vertexId, egressId, Message(payload, Time.debranch(time)))
+      }
+    }
+
+    df.registerEdge(ingressId, ingressRef)
+
+    df.registerEdge(feedbackId, feedbackRef)
+
+    df.registerEdge(egressId, egressRef)
+
+    df.registerVertex(ingressId, refId)
+
+    df.registerVertex(feedbackId, refId)
+
+    df.registerVertex(source.target, ingressId)
+
+  }
 }
