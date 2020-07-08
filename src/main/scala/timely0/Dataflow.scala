@@ -278,9 +278,6 @@ object Dataflow {
   abstract class UnaryVertex[T, B](df: Computation, source: Edge) {
 
     val refId = df.index.incrementAndGet()
-    // xxx(okachaiev): probably remove the concept of buffers
-    // as it's mostly around friendly API rather than essential part
-    val buffers: Map[Time, B] = Map.empty[Time, B]
     
     def onRecv(edge: Edge, msg: T, time: Time)
     def onNotify(at: Time) = {}
@@ -305,6 +302,8 @@ object Dataflow {
     df.registerVertex(source.target, refId)
 
     df.registerNotify(refId, notifyRef)
+
+    val output = df.newOutput(refId)
 
     def sendBy[T](e: Edge, msg: T, time: Time) = df.send(e.target, Message(msg, time))
     def notifyAt(at: Time) = df.notifyAt(refId, at)

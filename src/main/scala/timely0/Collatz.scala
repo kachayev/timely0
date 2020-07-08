@@ -11,8 +11,6 @@ object Collatz extends App {
   val input = computation.newInput[Long]
 
   val input2step = new UnaryVertex[Long, Any](computation, input.edge) {
-    val output = computation.newOutput(this.refId)
-
     def onRecv(e: Edge, msg: Long, time: Time) = {
       this.sendBy(this.output, Step(msg, msg, 0), time)
     }
