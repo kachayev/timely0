@@ -93,7 +93,7 @@ object Dataflow {
 
     val currentRound: Map[VertexId, Time] = Map.empty[VertexId, Time]
 
-    val edges: Map[VertexId, Vertex[_]] = Map.empty[VertexId, Vertex[_]]
+    val refs: Map[VertexId, Vertex[_]] = Map.empty[VertexId, Vertex[_]]
 
     val graph: Dataflow = Map.empty[VertexId, List[VertexId]]
 
@@ -101,29 +101,25 @@ object Dataflow {
 
     val notifications: Map[Time, Set[VertexId]] = Map.empty[Time, Set[VertexId]]
 
-    val notifyVertex: Map[VertexId, Notify] = Map.empty[VertexId, Notify]
+    val notifyRefs: Map[VertexId, Notify] = Map.empty[VertexId, Notify]
     
     val occurence: ConcurrentMap[Pointstamp, Int] = new ConcurrentHashMap[Pointstamp, Int]
    
     def newIndex(): Int = index.incrementAndGet()
     
-    // xxx(okachaiev): naming convenation is wrong... it's definitely not an edge
-    def registerEdge(id: VertexId, ref: Vertex[_]) = {
-      edges.put(id, ref)
-    }
+    def registerVertexRef(id: VertexId, ref: Vertex[_]) = refs.put(id, ref)
 
-    def registerVertexIn(graph: Dataflow, source: VertexId, target: VertexId) = {
+    def registerEdgeIn(graph: Dataflow, source: VertexId, target: VertexId) = {
       val v = graph.getOrElse(source, Nil)
       graph.put(source, target :: v)
     }
 
-    def registerVertex(source: VertexId, target: VertexId) = {
-      registerVertexIn(graph, source, target)
-      registerVertexIn(reverseGraph, target, source)
+    def registerEdge(source: VertexId, target: VertexId) = {
+      registerEdgeIn(graph, source, target)
+      registerEdgeIn(reverseGraph, target, source)
     }
 
-    // xxx(okachaiev): be more precise with naming... should be "notificationVertex"
-    def registerNotify(source: VertexId, target: Notify) = notifyVertex.put(source, target)
+    def registerNotifyRef(source: VertexId, target: Notify) = notifyRefs.put(source, target)
 
     def notifyAt(vertex: VertexId, at: Time) = {
       val targets = notifications.getOrElse(at, Set.empty[VertexId])
@@ -132,7 +128,7 @@ object Dataflow {
     }
 
     def send[T](message: Message[T]) =
-      edges.get(message.edge.target).map({ target =>
+      refs.get(message.edge.target).map({ target =>
         incrementOccurence(Pointstamp(message.time, message.edge.target))
         target.asInstanceOf[Vertex[T]].send(message)
       })
@@ -140,7 +136,7 @@ object Dataflow {
     def notify(point: Pointstamp) = point match { case Pointstamp(at, vertex) =>
       val targets = notifications.getOrElse(at, Set.empty[VertexId])
       notifications.put(at, targets-vertex)
-      notifyVertex.get(vertex).map(_.send(at))
+      notifyRefs.get(vertex).map(_.send(at))
     }
 
     // xxx(okachaiev): update reachability when adding vertex/edges
@@ -197,12 +193,11 @@ object Dataflow {
       })
     }
 
-    def incrementOccurence(point: Pointstamp) = {
+    def incrementOccurence(point: Pointstamp) =
       occurence.compute(point, (_, counter) => {
         if (counter.equals(null)) 1
         else counter + 1
       })
-    }
 
     def shouldNotify(point: Pointstamp): Boolean = point match {
       case Pointstamp(at, vertex) => notifications.get(at) match {
@@ -222,7 +217,13 @@ object Dataflow {
     }
 
     def newInput[T](): Input[T] = new Input[T](this)
-    def newOutput(source: VertexId): Edge = Edge(source, newIndex())
+
+    def newOutput(source: VertexId): Edge = {
+      val target = newIndex()
+      registerEdge(source, target)
+      Edge(source, target)
+    }
+
     def subscribe[T](source: Edge, callback: T => Unit): Unit =
       new Subscription(this, source, callback)
   }
@@ -269,9 +270,8 @@ object Dataflow {
       override def run(message: Notification) = onNotify(message)
     }
 
-    df.registerEdge(refId, ref)
-
-    df.registerNotify(refId, notifyRef)
+    df.registerVertexRef(refId, ref)
+    df.registerNotifyRef(refId, notifyRef)
 
     val output = df.newOutput(refId)
 
@@ -293,37 +293,38 @@ object Dataflow {
     extends UnaryVertex[T](df, Edge(source.source, df.newIndex())) {
 
     val ingressId = source.target
-    val feedbackId = df.newIndex()
-    val egressId = df.newIndex()
-    val feedback = Edge(this.refId, feedbackId)
-    val egress = Edge(this.refId, egressId)
+    val ingress2vertex = Edge(ingressId, refId)
+    val feedback = df.newOutput(this.refId)
+    val feedback2vertex = Edge(feedback.target, refId)
+    val egress = df.newOutput(this.refId)
 
     val ingressRef = new SimpleActor[Message[T]]() {
       override def run(message: Message[T]) = message match {
         case Message(_edge, payload, time) =>
-          df.send(Message(Edge(ingressId, refId), payload, Time.branch(time)))
+          df.send(Message(ingress2vertex, payload, Time.branch(time)))
       }
     }
 
     val feedbackRef = new SimpleActor[Message[T]]() {
       override def run(message: Message[T]) = message match {
         case Message(_edge, payload, time) =>
-          df.send(Message(Edge(feedbackId, refId), payload, Time.advance(time)))
+          df.send(Message(feedback2vertex, payload, Time.advance(time)))
       }
     }
 
     val egressRef = new SimpleActor[Message[E]]() {
       override def run(message: Message[E]) = message match {
         case Message(edge, payload, time) =>
-          df.send(Message(Edge(egressId, edge.target), payload, Time.debranch(time)))
+          df.send(Message(Edge(egress.target, output.target), payload, Time.debranch(time)))
       }
     }
 
-    df.registerEdge(ingressId, ingressRef)
-    df.registerEdge(feedbackId, feedbackRef)
-    df.registerEdge(egressId, egressRef)
-    df.registerVertex(ingressId, refId)
-    df.registerVertex(feedbackId, refId)
+    df.registerVertexRef(ingressId, ingressRef)
+    df.registerVertexRef(feedback.target, feedbackRef)
+    df.registerVertexRef(egress.target, egressRef)
+    // xxx(okachaiev): this is necessary but somehow breaks the resolver
+    // df.registerEdge(ingressId, refId)
+    // df.registerEdge(feedback.target, refId)
 
   }
 }

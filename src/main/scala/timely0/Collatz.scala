@@ -26,7 +26,7 @@ object Collatz extends App {
     }
   }
  
-  computation.subscribe[(Long, Long)](loop.egress, msg => println(msg))
+  computation.subscribe[(Long, Long)](loop.output, msg => println(msg))
   
   input.onNext(12)
   input.onNext(100)
