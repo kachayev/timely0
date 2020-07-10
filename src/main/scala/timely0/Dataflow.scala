@@ -105,6 +105,8 @@ object Dataflow {
     
     val occurence: ConcurrentMap[Pointstamp, Int] = new ConcurrentHashMap[Pointstamp, Int]
    
+    def newIndex(): Int = index.incrementAndGet()
+    
     // xxx(okachaiev): naming convenation is wrong... it's definitely not an edge
     def registerEdge(id: VertexId, ref: Vertex[_]) = {
       edges.put(id, ref)
@@ -220,13 +222,13 @@ object Dataflow {
     }
 
     def newInput[T](): Input[T] = new Input[T](this)
-    def newOutput(source: VertexId): Edge = Edge(source, index.getAndIncrement())
+    def newOutput(source: VertexId): Edge = Edge(source, newIndex())
     def subscribe[T](source: Edge, callback: T => Unit): Unit =
       new Subscription(this, source, callback)
   }
 
   class Input[T](df: Computation) {
-    val refId = df.index.incrementAndGet()
+    val refId = df.newIndex()
     val output = df.newOutput(refId)
     val isCompleted = new AtomicBoolean(false)
     // relying on the fact that input cannot be a part of
@@ -288,11 +290,11 @@ object Dataflow {
   // ingress is automatically linked (bounded) to the source edge
   // by redefining UnaryVertex constructor parameters
   abstract class LoopContext[T, E](df: Computation, source: Edge)
-    extends UnaryVertex[T](df, Edge(source.source, df.index.getAndIncrement())) {
+    extends UnaryVertex[T](df, Edge(source.source, df.newIndex())) {
 
     val ingressId = source.target
-    val feedbackId = df.index.incrementAndGet()
-    val egressId = df.index.incrementAndGet()
+    val feedbackId = df.newIndex()
+    val egressId = df.newIndex()
     val feedback = Edge(this.refId, feedbackId)
     val egress = Edge(this.refId, egressId)
 
