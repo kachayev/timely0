@@ -294,6 +294,7 @@ object Dataflow {
     val feedback = df.newOutput(this.refId)
     val feedback2vertex = Edge(feedback.target, refId)
     val egress = df.newOutput(this.refId)
+    val egress2output = Edge(egress.target, output.target)
 
     df.registerVertexRef(ingressId, new SimpleActor[Message[T]]() {
       override def run(message: Message[T]) = message match {
@@ -311,8 +312,8 @@ object Dataflow {
 
     df.registerVertexRef(egress.target, new SimpleActor[Message[E]]() {
       override def run(message: Message[E]) = message match {
-        case Message(edge, payload, time) =>
-          df.send(Message(Edge(egress.target, output.target), payload, Time.debranch(time)))
+        case Message(_edge, payload, time) =>
+          df.send(Message(egress2output, payload, Time.debranch(time)))
       }
     })
 
