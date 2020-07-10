@@ -259,19 +259,16 @@ object Dataflow {
     def onRecv(edge: Edge, msg: T, time: Time)
     def onNotify(at: Time) = {}
     
-    val ref = new SimpleActor[Message[T]]() {
+    df.registerVertexRef(refId, new SimpleActor[Message[T]]() {
       override def run(message: Message[T]) = {
         onRecv(message.edge, message.payload, message.time)
         df.decrementOccurence(Pointstamp(message.time, refId))
       }
-    }
+    })
 
-    val notifyRef = new SimpleActor[Notification]() {
+    df.registerNotifyRef(refId, new SimpleActor[Notification]() {
       override def run(message: Notification) = onNotify(message)
-    }
-
-    df.registerVertexRef(refId, ref)
-    df.registerNotifyRef(refId, notifyRef)
+    })
 
     val output = df.newOutput(refId)
 
@@ -298,30 +295,27 @@ object Dataflow {
     val feedback2vertex = Edge(feedback.target, refId)
     val egress = df.newOutput(this.refId)
 
-    val ingressRef = new SimpleActor[Message[T]]() {
+    df.registerVertexRef(ingressId, new SimpleActor[Message[T]]() {
       override def run(message: Message[T]) = message match {
         case Message(_edge, payload, time) =>
           df.send(Message(ingress2vertex, payload, Time.branch(time)))
       }
-    }
+    })
 
-    val feedbackRef = new SimpleActor[Message[T]]() {
+    df.registerVertexRef(feedback.target, new SimpleActor[Message[T]]() {
       override def run(message: Message[T]) = message match {
         case Message(_edge, payload, time) =>
           df.send(Message(feedback2vertex, payload, Time.advance(time)))
       }
-    }
+    })
 
-    val egressRef = new SimpleActor[Message[E]]() {
+    df.registerVertexRef(egress.target, new SimpleActor[Message[E]]() {
       override def run(message: Message[E]) = message match {
         case Message(edge, payload, time) =>
           df.send(Message(Edge(egress.target, output.target), payload, Time.debranch(time)))
       }
-    }
+    })
 
-    df.registerVertexRef(ingressId, ingressRef)
-    df.registerVertexRef(feedback.target, feedbackRef)
-    df.registerVertexRef(egress.target, egressRef)
     // xxx(okachaiev): this is necessary but somehow breaks the resolver
     // df.registerEdge(ingressId, refId)
     // df.registerEdge(feedback.target, refId)
