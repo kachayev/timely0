@@ -66,16 +66,15 @@ object Dataflow {
 
   implicit def int2Time(x: Int): Time = Time(x)
 
-  // xxx(okachaiev): message should probably be extended to keep track of
-  // source vertex id (or edge) to avoid a lot of code duplication
-  // and ._1, ._2 extractors
-  final case class Message[T](payload: T, time: Time)
-  
-  type Vertex[T] = SimpleActor[(VertexId, Message[T])]
-
   type VertexId = Int
+  
+  final case class Message[T](edge: Edge, payload: T, time: Time)
+  
+  type Vertex[T] = SimpleActor[Message[T]]
 
-  type Notify = Time
+  type Notification = Time
+
+  type Notify = SimpleActor[Notification]
 
   type Dataflow = Map[VertexId, List[VertexId]]
 
@@ -102,7 +101,7 @@ object Dataflow {
 
     val notifications: Map[Time, Set[VertexId]] = Map.empty[Time, Set[VertexId]]
 
-    val notifyVertex: Map[VertexId, Vertex[Notify]] = Map.empty[VertexId, Vertex[Notify]]
+    val notifyVertex: Map[VertexId, Notify] = Map.empty[VertexId, Notify]
     
     val occurence: ConcurrentMap[Pointstamp, Int] = new ConcurrentHashMap[Pointstamp, Int]
    
@@ -122,9 +121,7 @@ object Dataflow {
     }
 
     // xxx(okachaiev): be more precise with naming... should be "notificationVertex"
-    def registerNotify(source: VertexId, target: Vertex[Notify]) = {
-      notifyVertex.put(source, target)
-    }
+    def registerNotify(source: VertexId, target: Notify) = notifyVertex.put(source, target)
 
     def notifyAt(vertex: VertexId, at: Time) = {
       val targets = notifications.getOrElse(at, Set.empty[VertexId])
@@ -132,29 +129,16 @@ object Dataflow {
       notifications.put(at, targets + vertex)
     }
 
-    // xxx(okachaiev): do we really need 2 different calls?
-    def send[T](source: VertexId, message: Message[T]) = {
-      graph.getOrElse(source, Nil) foreach { targetId =>
-        edges.get(targetId).map({ target =>
-          incrementOccurence(Pointstamp(message.time, targetId))
-          target.asInstanceOf[Vertex[T]].send((source, message))
-        })
-      }
-    }
-
-    def sendBy[T](source: VertexId, targetId: VertexId, message: Message[T]) = {
-      edges.get(targetId).map({ target =>
-        incrementOccurence(Pointstamp(message.time, targetId))
-        target.asInstanceOf[Vertex[T]].send((source, message))
+    def send[T](message: Message[T]) =
+      edges.get(message.edge.target).map({ target =>
+        incrementOccurence(Pointstamp(message.time, message.edge.target))
+        target.asInstanceOf[Vertex[T]].send(message)
       })
-    }
 
     def notify(point: Pointstamp) = point match { case Pointstamp(at, vertex) =>
       val targets = notifications.getOrElse(at, Set.empty[VertexId])
       notifications.put(at, targets-vertex)
-      notifyVertex.get(vertex) map { target =>
-        target.send((vertex, Message(at, at)))
-      }
+      notifyVertex.get(vertex).map(_.send(at))
     }
 
     // xxx(okachaiev): update reachability when adding vertex/edges
@@ -236,33 +220,28 @@ object Dataflow {
     }
 
     def newInput[T](): Input[T] = new Input[T](this)
-    // xxx(okachaiev): should this edge be automatically registered?
     def newOutput(source: VertexId): Edge = Edge(source, index.getAndIncrement())
-    def subscribe[T](source: Edge, callback: T => Unit): Unit = new Subscription(this, source, callback)
+    def subscribe[T](source: Edge, callback: T => Unit): Unit =
+      new Subscription(this, source, callback)
   }
 
   class Input[T](df: Computation) {
     val refId = df.index.incrementAndGet()
-    val edge = Edge(-1, refId)
+    val output = df.newOutput(refId)
     val isCompleted = new AtomicBoolean(false)
     // relying on the fact that input cannot be a part of
     // any loops :thinking:
     val currentEpoch = new AtomicInteger(0)
 
-    val ref = new SimpleActor[(VertexId, Message[T])]() {
-      override def run(message: (VertexId, Message[T])) = {
-        df.send(refId, message._2)
-        val cursor = currentEpoch.incrementAndGet()
-        df.broadcastProgressUpdate(refId, Time(cursor))
+    val ref = new SimpleActor[T]() {
+      override def run(payload: T) = {
+        val currentTime = Time(currentEpoch.getAndIncrement())
+        df.send(Message(output, payload, currentTime))
+        df.broadcastProgressUpdate(refId, currentTime)
       }
     }
 
-    df.registerEdge(refId, ref)
-
-    def onNext(payload: T) = {
-      if (!isCompleted.get) ref.send((0, Message(payload, Time(currentEpoch.get))))
-    }
-
+    def onNext(payload: T) = if (!isCompleted.get) ref.send(payload)
     def onComplete() = isCompleted.compareAndSet(false, true)
   }
 
@@ -272,35 +251,29 @@ object Dataflow {
   // very specific computation/controller they are intended to be used for
   abstract class UnaryVertex[T](df: Computation, source: Edge) {
 
-    val refId = df.index.incrementAndGet()
+    val refId = source.target
     
     def onRecv(edge: Edge, msg: T, time: Time)
     def onNotify(at: Time) = {}
     
-    val ref = new SimpleActor[(VertexId, Message[T])]() {
-      override def run(message: (VertexId, Message[T])) = message match {
-        case (vertexId, message) => {
-          onRecv(Edge(vertexId, refId), message.payload, message.time)
-          df.decrementOccurence(Pointstamp(message.time, refId))
-        }
+    val ref = new SimpleActor[Message[T]]() {
+      override def run(message: Message[T]) = {
+        onRecv(message.edge, message.payload, message.time)
+        df.decrementOccurence(Pointstamp(message.time, refId))
       }
     }
 
-    val notifyRef = new SimpleActor[(VertexId, Message[Notify])]() {
-      override def run(message: (VertexId, Message[Notify])) = {
-        onNotify(message._2.time)
-      }
+    val notifyRef = new SimpleActor[Notification]() {
+      override def run(message: Notification) = onNotify(message)
     }
 
     df.registerEdge(refId, ref)
-
-    df.registerVertex(source.target, refId)
 
     df.registerNotify(refId, notifyRef)
 
     val output = df.newOutput(refId)
 
-    def sendBy[T](e: Edge, msg: T, time: Time) = df.send(e.target, Message(msg, time))
+    def sendBy[T](edge: Edge, msg: T, time: Time) = df.send(Message(edge, msg, time))
     def notifyAt(at: Time) = df.notifyAt(refId, at)
   }
 
@@ -309,48 +282,46 @@ object Dataflow {
     def onRecv(e: Edge, msg: T, time: Time) = callback(msg)
   }
 
+  // LoopContext provides 2 different "output" edges to work with:
+  // * this.feedback (to loop the message back into the loop)
+  // * this.egress (to send message to an outer scope)
+  // ingress is automatically linked (bounded) to the source edge
+  // by redefining UnaryVertex constructor parameters
   abstract class LoopContext[T, E](df: Computation, source: Edge)
-    extends UnaryVertex[T](df, source) {
+    extends UnaryVertex[T](df, Edge(source.source, df.index.getAndIncrement())) {
 
-    val ingressId = df.index.incrementAndGet()
+    val ingressId = source.target
     val feedbackId = df.index.incrementAndGet()
     val egressId = df.index.incrementAndGet()
     val feedback = Edge(this.refId, feedbackId)
     val egress = Edge(this.refId, egressId)
 
-    val ingressRef = new SimpleActor[(VertexId, Message[T])]() {
-      override def run(message: (VertexId, Message[T])) = message match {
-        case (vertexId, Message(payload, time)) => {
-          df.sendBy[T](vertexId, ingressId, Message(payload, Time.branch(time)))
-        }
+    val ingressRef = new SimpleActor[Message[T]]() {
+      override def run(message: Message[T]) = message match {
+        case Message(_edge, payload, time) =>
+          df.send(Message(Edge(ingressId, refId), payload, Time.branch(time)))
       }
     }
 
-    val feedbackRef = new SimpleActor[(VertexId, Message[T])]() {
-      override def run(message: (VertexId, Message[T])) = message match {
-        case (vertexId, Message(payload, time)) =>
-          df.sendBy[T](vertexId, feedbackId, Message(payload, Time.advance(time)))
+    val feedbackRef = new SimpleActor[Message[T]]() {
+      override def run(message: Message[T]) = message match {
+        case Message(_edge, payload, time) =>
+          df.send(Message(Edge(feedbackId, refId), payload, Time.advance(time)))
       }
     }
 
-    val egressRef = new SimpleActor[(VertexId, Message[E])]() {
-      override def run(message: (VertexId, Message[E])) = message match {
-        case (vertexId, Message(payload, time)) =>
-          df.sendBy[E](vertexId, egressId, Message(payload, Time.debranch(time)))
+    val egressRef = new SimpleActor[Message[E]]() {
+      override def run(message: Message[E]) = message match {
+        case Message(edge, payload, time) =>
+          df.send(Message(Edge(egressId, edge.target), payload, Time.debranch(time)))
       }
     }
 
     df.registerEdge(ingressId, ingressRef)
-
     df.registerEdge(feedbackId, feedbackRef)
-
     df.registerEdge(egressId, egressRef)
-
     df.registerVertex(ingressId, refId)
-
     df.registerVertex(feedbackId, refId)
-
-    df.registerVertex(source.target, ingressId)
 
   }
 }

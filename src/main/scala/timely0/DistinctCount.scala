@@ -20,7 +20,7 @@ object DistinctCount extends App {
   // and splits it into words, sending each word separately while keeping
   // epoch the same. this way, further discount/counter operations would
   // make sense
-  val string2words = new UnaryVertex[String](computation, input.edge) {
+  val string2words = new UnaryVertex[String](computation, input.output) {
     def onRecv(e: Edge, msg: String, time: Time) = {
       msg.split(" ").map(_.trim().toLowerCase()).foreach({ word =>
         this.sendBy(this.output, word, time)
