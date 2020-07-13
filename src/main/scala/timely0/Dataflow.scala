@@ -201,6 +201,7 @@ object Dataflow {
 
     // xxx(okachaiev): update reachability when adding vertex/edges
     // not each time we send a message
+    // xxx(okachaiev): extremely inefficient way to do a traversal
     def reachableFromDataflow(graph: Dataflow, vertex: VertexId): Set[VertexId] = {
       def bfs(state: Set[VertexId]): Set[VertexId] = {
         val newState = state.foldLeft(Set.empty[VertexId])({ (cursor, node) =>
@@ -217,7 +218,6 @@ object Dataflow {
     def reachableTo(vertex: VertexId): Set[VertexId] =
       reachableFromDataflow(reverseGraph, vertex) - vertex
 
-    // xxx(okachaiev): extremely inefficient way to do a traversal
     def reachableFrom(vertex: VertexId): Set[VertexId] =
       reachableFromDataflow(graph, vertex)
 
@@ -329,8 +329,8 @@ object Dataflow {
     })
 
     // xxx(okachaiev): this is necessary but somehow breaks the resolver
-    // df.registerEdge(ingressId, refId)
-    // df.registerEdge(feedback.target, refId)
+    df.registerEdge(ingressId, refId)
+    df.registerEdge(feedback.target, refId)
 
   }
 }
