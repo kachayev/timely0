@@ -328,9 +328,7 @@ object Dataflow {
       }
     })
 
-    // xxx(okachaiev): this is necessary but somehow breaks the resolver
     df.registerEdge(ingressId, refId)
     df.registerEdge(feedback.target, refId)
-
   }
 }
