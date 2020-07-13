@@ -300,6 +300,13 @@ object Dataflow {
   abstract class LoopContext[T, E](df: Computation, source: Edge)
     extends UnaryVertex[T](df, Edge(source.source, df.newIndex())) {
 
+    class Rerouter[T](e: Edge, timer: Time => Time) extends SimpleActor[Message[T]] {
+      override def run(message: Message[T]) = message match {
+        case Message(_edge, payload, time) =>
+          df.send(Message(e, payload, timer(time)))
+      }
+    }
+
     val ingressId = source.target
     val ingress2vertex = Edge(ingressId, refId)
     val feedback = df.newOutput(this.refId)
@@ -307,27 +314,9 @@ object Dataflow {
     val egress = df.newOutput(this.refId)
     val egress2output = Edge(egress.target, output.target)
 
-    df.registerVertexRef(ingressId, new SimpleActor[Message[T]]() {
-      override def run(message: Message[T]) = message match {
-        case Message(_edge, payload, time) =>
-          df.send(Message(ingress2vertex, payload, Time.branch(time)))
-      }
-    })
-
-    df.registerVertexRef(feedback.target, new SimpleActor[Message[T]]() {
-      override def run(message: Message[T]) = message match {
-        case Message(_edge, payload, time) =>
-          df.send(Message(feedback2vertex, payload, Time.advance(time)))
-      }
-    })
-
-    df.registerVertexRef(egress.target, new SimpleActor[Message[E]]() {
-      override def run(message: Message[E]) = message match {
-        case Message(_edge, payload, time) =>
-          df.send(Message(egress2output, payload, Time.debranch(time)))
-      }
-    })
-
+    df.registerVertexRef(ingressId, new Rerouter[T](ingress2vertex, Time.branch))
+    df.registerVertexRef(feedback.target, new Rerouter[T](feedback2vertex, Time.advance))
+    df.registerVertexRef(egress.target, new Rerouter[E](egress2output, Time.debranch))    
     df.registerEdge(ingressId, refId)
     df.registerEdge(feedback.target, refId)
   }
