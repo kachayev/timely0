@@ -82,6 +82,21 @@ object Dataflow {
 
   case class Pointstamp(time: Time, id: VertexId)
 
+  sealed trait ProgressAction
+
+  object ProgressAction {
+    case class Update(vertex: VertexId, at: Time) extends ProgressAction
+    case class IncrementOccurence(point: Pointstamp) extends ProgressAction
+    case class DecrementOccurence(point: Pointstamp) extends ProgressAction
+  }
+
+  sealed trait NotifyAction
+
+  object NotifyAction {
+    case class At(vertex: VertexId, at: Time) extends NotifyAction
+    case class Send(point: Pointstamp) extends NotifyAction 
+  }
+
   // Naiad has 2 separate concepts: Controller and Computation
   // here we are going to simplify to a single notion of "Computation"
   // that encapsulates dataflow graph, progress tracker, and scheduler
@@ -90,21 +105,79 @@ object Dataflow {
   class Computation {
 
     val index = new AtomicInteger(0)
-
     val currentRound: Map[VertexId, Time] = Map.empty[VertexId, Time]
-
     val refs: Map[VertexId, Vertex[_]] = Map.empty[VertexId, Vertex[_]]
-
     val graph: Dataflow = Map.empty[VertexId, List[VertexId]]
-
     val reverseGraph: Dataflow = Map.empty[VertexId, List[VertexId]]
-
-    val notifications: Map[Time, Set[VertexId]] = Map.empty[Time, Set[VertexId]]
-
     val notifyRefs: Map[VertexId, Notify] = Map.empty[VertexId, Notify]
-    
     val occurence: ConcurrentMap[Pointstamp, Int] = new ConcurrentHashMap[Pointstamp, Int]
    
+    val progressTracker = new SimpleActor[ProgressAction]() {
+      override def run(message: ProgressAction) = message match {
+        case ProgressAction.Update(vertex, at) => {
+          val round = currentRound.get(vertex)
+          // assuming "reachableFrom" also includes itself
+          val reachable = reachableFrom(vertex)
+          reachable foreach { edge =>
+            currentRound.put(edge, Time.max(at, currentRound.get(edge).getOrElse(Time.Epoch)))
+          }
+          round.map({ at =>
+            reachable foreach { edge => notifier.send(NotifyAction.Send(Pointstamp(at, edge))) }
+          })
+        }
+
+        case ProgressAction.IncrementOccurence(point: Pointstamp) => 
+          occurence.compute(point, (_, counter) => {
+            if (counter.equals(null)) 1
+            else counter + 1
+          })
+
+        case ProgressAction.DecrementOccurence(point: Pointstamp) =>
+          occurence.computeIfPresent(point, (_, counter) => {
+            val newCounter = counter-1
+            if (newCounter == 0) notifier.send(NotifyAction.Send(point))
+            newCounter
+          })
+      }
+    }
+
+    val notifier = new SimpleActor[NotifyAction]() {
+      val notifications: Map[Time, Set[VertexId]] = Map.empty[Time, Set[VertexId]]
+      
+      def shouldNotify(at: Time, vertex: VertexId): Boolean =
+        notifications.get(at) match {
+          case Some(edges) => edges.contains(vertex)
+          case None => false
+        }
+
+      def notify(at: Time, vertex: VertexId) = {
+        val targets = notifications.getOrElse(at, Set.empty[VertexId])
+        notifications.put(at, targets-vertex)
+        notifyRefs.get(vertex).map(_.send(at))
+      }
+
+      override def run(message: NotifyAction) = message match {
+        // called when # of message for a specific Vertex at specific Time
+        // is dropped to 0. in case if all "previous" nodes in a graph
+        // have current round > notification time, we should fire
+        // notification
+        case NotifyAction.Send(Pointstamp(at, vertex)) =>
+          if (shouldNotify(at, vertex)) {
+            val notifiable = reachableTo(vertex) forall { prev =>
+              currentRound.get(prev) match {
+                case Some(round) => round > at && occurence.get((prev, at), 0) == 0
+                case None => true // should not happen, right?
+              }
+            }
+            if (notifiable) this.notify(at, vertex)
+          }
+        case NotifyAction.At(vertex: VertexId, at: Time) => {
+          val targets = notifications.getOrElse(at, Set.empty[VertexId])
+          notifications.put(at, targets + vertex)
+        }
+      }
+    }
+
     def newIndex(): Int = index.incrementAndGet()
     
     def registerVertexRef(id: VertexId, ref: Vertex[_]) = refs.put(id, ref)
@@ -121,23 +194,14 @@ object Dataflow {
 
     def registerNotifyRef(source: VertexId, target: Notify) = notifyRefs.put(source, target)
 
-    def notifyAt(vertex: VertexId, at: Time) = {
-      val targets = notifications.getOrElse(at, Set.empty[VertexId])
-      // xxx(okachaiev): concurrency (!!!), should be message most probably
-      notifications.put(at, targets + vertex)
-    }
+    def notifyAt(vertex: VertexId, at: Time) = notifier.send(NotifyAction.At(vertex, at))
 
     def send[T](message: Message[T]) =
       refs.get(message.edge.target).map({ target =>
-        incrementOccurence(Pointstamp(message.time, message.edge.target))
+        val point = Pointstamp(message.time, message.edge.target)
+        progressTracker.send(ProgressAction.IncrementOccurence(point))
         target.asInstanceOf[Vertex[T]].send(message)
       })
-
-    def notify(point: Pointstamp) = point match { case Pointstamp(at, vertex) =>
-      val targets = notifications.getOrElse(at, Set.empty[VertexId])
-      notifications.put(at, targets-vertex)
-      notifyRefs.get(vertex).map(_.send(at))
-    }
 
     // xxx(okachaiev): update reachability when adding vertex/edges
     // not each time we send a message
@@ -161,60 +225,11 @@ object Dataflow {
     def reachableFrom(vertex: VertexId): Set[VertexId] =
       reachableFromDataflow(graph, vertex)
 
-    // called when # of message for a specific Vertex at specific Time
-    // is dropped to 0. in case if all "previous" nodes in a graph
-    // have current round > notification time, we should fire
-    // notification
-    def tryNotify(point: Pointstamp) = point match { case Pointstamp(at, vertex) =>
-      val notifiable = reachableTo(vertex) forall { prev =>
-        currentRound.get(prev) match {
-          case Some(round) => round > at && occurence.get((prev, at), 0) == 0
-          case None => true // xxx(okachaiev): should not happen, right?
-        }
-      }
-      if (notifiable) notify(point)
-    }
-   
-    // xxx(okachaiev): concurrency (!!!), reimplement as messages to
-    // rely on a single queue of all updates
-    // xxx(okachaiev): create a separate object "ProgressTracker" to avoid
-    // mixing the concept with other things
-    def broadcastProgressUpdate(vertex: VertexId, at: Time) = {
-      val round = currentRound.get(vertex)
+    def broadcastProgressUpdate(vertex: VertexId, at: Time) =
+      progressTracker.send(ProgressAction.Update(vertex, at))
 
-      // assuming "reachableFrom" also includes itself
-      val reachable = reachableFrom(vertex)
-      reachable foreach { edge =>
-        currentRound.put(edge, Time.max(at, currentRound.get(edge).getOrElse(Time.Epoch)))
-      }
-
-      round.map({ at =>
-        reachable foreach { edge => tryNotify(Pointstamp(at, edge)) }
-      })
-    }
-
-    def incrementOccurence(point: Pointstamp) =
-      occurence.compute(point, (_, counter) => {
-        if (counter.equals(null)) 1
-        else counter + 1
-      })
-
-    def shouldNotify(point: Pointstamp): Boolean = point match {
-      case Pointstamp(at, vertex) => notifications.get(at) match {
-        case Some(edges) => edges.contains(vertex)
-        case None => false
-      }
-    }
-    
-    def decrementOccurence(point: Pointstamp) = {
-      occurence.computeIfPresent(point, (_, counter) => {
-        val newCounter = counter-1
-        if (newCounter == 0 && shouldNotify(point)) {
-          tryNotify(point)
-        }
-        newCounter
-      })
-    }
+    def decrementOccurence(point: Pointstamp) =
+      progressTracker.send(ProgressAction.DecrementOccurence(point))
 
     def newInput[T](): Input[T] = new Input[T](this)
 
