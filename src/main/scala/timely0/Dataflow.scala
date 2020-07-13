@@ -202,7 +202,7 @@ object Dataflow {
     // xxx(okachaiev): update reachability when adding vertex/edges
     // not each time we send a message
     // xxx(okachaiev): extremely inefficient way to do a traversal
-    def reachableFromDataflow(graph: Dataflow, vertex: VertexId): Set[VertexId] = {
+    def recomputeReachability(graph: Dataflow, vertex: VertexId): Set[VertexId] = {
       def bfs(state: Set[VertexId]): Set[VertexId] = {
         val newState = state.foldLeft(Set.empty[VertexId])({ (cursor, node) =>
           val targets = graph.getOrElse(node, List.empty[VertexId]).toSet
@@ -216,10 +216,10 @@ object Dataflow {
     }
 
     def reachableTo(vertex: VertexId): Set[VertexId] =
-      reachableFromDataflow(reverseGraph, vertex) - vertex
+      recomputeReachability(reverseGraph, vertex) - vertex
 
     def reachableFrom(vertex: VertexId): Set[VertexId] =
-      reachableFromDataflow(graph, vertex)
+      recomputeReachability(graph, vertex)
 
     def broadcastProgressUpdate(vertex: VertexId, at: Time) =
       progressTracker.send(ProgressAction.Update(vertex, at))

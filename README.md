@@ -52,6 +52,9 @@ What was intentionally omitted/skipped/over-simplified:
 * graceful shutdown, stage flush
 * checkpoint/restore vertex state
 
+Notable performance improvements that could/should be done:
+* reachability in a dataflow graph is recomputed on each message instead of recomputing it when new vertex is introduced
+
 ## Compile & Run
 
 Just use `sbt`.
