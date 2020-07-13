@@ -20,6 +20,11 @@ object DistinctCount extends App {
   // and splits it into words, sending each word separately while keeping
   // epoch the same. this way, further discount/counter operations would
   // make sense
+  // also, `input.output` naming is somewhat missleading and brutally weird...
+  // in theory it's possible to avoid the problem by implementing either "output"
+  // trait and having implicit conversion from Vertex to Output that uses defaults
+  // when necessary. tho' it would be practical, it has nothing to do with the
+  // topic of the paper (rather being scala API purity concern)
   val string2words = new UnaryVertex[String](computation, input.output) {
     def onRecv(e: Edge, msg: String, time: Time) = {
       msg.split(" ").map(_.trim().toLowerCase()).foreach({ word =>

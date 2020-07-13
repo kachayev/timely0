@@ -71,15 +71,11 @@ object Dataflow {
   final case class Message[T](edge: Edge, payload: T, time: Time)
   
   type Vertex[T] = SimpleActor[Message[T]]
-
   type Notification = Time
-
   type Notify = SimpleActor[Notification]
-
   type Dataflow = Map[VertexId, List[VertexId]]
 
   case class Edge(source: VertexId, target: VertexId)
-
   case class Pointstamp(time: Time, id: VertexId)
 
   sealed trait ProgressAction

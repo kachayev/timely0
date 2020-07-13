@@ -30,6 +30,8 @@ Vertex API seems too verbose in many cases, and it's true. It is verbose. Basic 
 
 Even `subscription` functionality that is used to observe changes hapenning within dataflow graph seems quite high level (and, in fact, is implementated by reusing existing Vertex abstraction).
 
+Also, see a lot of comments in the code around specific decisions made along the road.
+
 ## DOs
 
 What is covered:
